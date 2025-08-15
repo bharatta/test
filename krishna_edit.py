@@ -6,22 +6,29 @@ from typing import Tuple, Optional
 
 import numpy as np
 from PIL import Image, ImageDraw
-import cv2
+try:
+	import cv2  # type: ignore
+	HAS_CV2 = True
+except Exception:
+	cv2 = None  # type: ignore
+	HAS_CV2 = False
 
 
 BoundingBox = Tuple[int, int, int, int]
 
 
 def detect_face_bbox(bgr_image: np.ndarray) -> Optional[BoundingBox]:
-    gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
-    # Use OpenCV's built-in haar cascade
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
-    if len(faces) == 0:
-        return None
-    # Choose the largest face (in case of multiple)
-    x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-    return int(x), int(y), int(w), int(h)
+	if not HAS_CV2:
+		return None
+	gray = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
+	# Use OpenCV's built-in haar cascade
+	face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+	faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+	if len(faces) == 0:
+		return None
+	# Choose the largest face (in case of multiple)
+	x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+	return int(x), int(y), int(w), int(h)
 
 
 def draw_crown_and_feather(overlay: Image.Image, face_bbox: BoundingBox) -> None:
@@ -220,19 +227,21 @@ def main() -> None:
     parser.add_argument('--no-face-detect', action='store_true', help='Disable face detection and use image center heuristic')
     args = parser.parse_args()
 
-    bgr = cv2.imread(args.input)
-    if bgr is None:
+    try:
+        pil_img = Image.open(args.input).convert('RGB')
+    except Exception:
         raise SystemExit(f'Could not read input image: {args.input}')
 
     face_bbox = None
-    if not args.no_face_detect:
+    if not args.no_face_detect and HAS_CV2:
         try:
+            rgb = np.array(pil_img)
+            bgr = rgb[:, :, ::-1].copy()
             face_bbox = detect_face_bbox(bgr)
         except Exception:
             face_bbox = None
-
-    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    pil_img = Image.fromarray(rgb)
+    elif not args.no_face_detect and not HAS_CV2:
+        print('OpenCV not available; skipping face detection.')
 
     result = compose_krishna(pil_img, face_bbox)
     result.save(args.output)
